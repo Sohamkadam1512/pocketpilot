@@ -318,7 +318,7 @@ async function initialCloudMerge(user){
   for(const t of cloudDeleted){
     if(!state.deletedIds.some(x=>String(x.id)===t.id))state.deletedIds.push(t);
   }
-  const settingsRef=doc(db,uid,'settings','emergencyFund');
+  const settingsRef=doc(db,'users',uid,'settings','emergencyFund');
   const {getDoc}=await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js');
   const settingsSnap=await getDoc(settingsRef);
   if(settingsSnap.exists()){
