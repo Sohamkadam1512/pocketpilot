@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="en">
 <head>
@@ -50,18 +49,32 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:10px}
  <div id="authMessage" class="small" role="status" aria-live="polite"><span class="status-dot"></span>Local mode: your expenses stay on this device until you sign in.</div>
 </section>
 <section class="hero panel">
- <div class="row"><div><div class="eyebrow" id="monthLabel">Monthly overview</div><div class="big" id="remaining">₹2,000</div><div class="muted">Monthly allowance remaining to allocate/spend</div></div><div style="text-align:right"><div class="eyebrow">Monthly budget</div><div class="big">₹2,000</div><div class="muted">Savings target ₹500</div></div></div>
+ <div class="row"><div><div class="eyebrow" id="monthLabel">Monthly overview</div><div class="big" id="remaining">₹1,500</div><div class="muted">Available to spend after savings target</div></div><div style="text-align:right"><div class="eyebrow">Monthly budget</div><div class="big" id="monthlyBudgetDisplay">₹2,000</div><div class="muted" id="savingsTargetDisplay">Savings target ₹500</div></div></div>
  <div class="bar"><div class="fill" id="monthBar" style="width:0%"></div></div>
  <div class="grid">
   <div class="metric"><div class="eyebrow">Spent this month</div><strong id="monthSpent">₹0</strong></div>
-  <div class="metric"><div class="eyebrow">Saved this month</div><strong id="monthSaved">₹0</strong></div>
+  <div class="metric"><div class="eyebrow">Savings target</div><strong id="monthSaved">₹500</strong></div>
   <div class="metric"><div class="eyebrow">Emergency fund</div><strong id="emergency">₹3,000</strong></div>
   <div class="metric"><div class="eyebrow">Transactions</div><strong id="txCount">0</strong></div>
  </div>
 </section>
 <section class="card">
  <h2>Monthly plan</h2><div id="categoryBars"></div>
- <div class="small">Plan: Canteen ₹900 · Personal ₹300 · Unexpected ₹300 · Savings ₹500.</div>
+ <div class="small" id="planSummary">Your category allocations plus savings must equal your monthly budget.</div>
+</section>
+<section class="card">
+ <h2>Customize your budget</h2>
+ <p class="small">Set your monthly budget, savings target and category limits. The three category amounts plus savings must equal the monthly budget exactly.</p>
+ <form id="budgetForm">
+  <div class="formgrid">
+   <div><label for="budgetMonthly">Monthly budget (₹)</label><input id="budgetMonthly" type="number" min="1" step="1" required></div>
+   <div><label for="budgetSavings">Monthly savings target (₹)</label><input id="budgetSavings" type="number" min="0" step="1" required></div>
+   <div><label for="budgetCanteen">Canteen (₹)</label><input id="budgetCanteen" type="number" min="0" step="1" required></div>
+   <div><label for="budgetPersonal">Personal (₹)</label><input id="budgetPersonal" type="number" min="0" step="1" required></div>
+   <div class="full"><label for="budgetUnexpected">Unexpected (₹)</label><input id="budgetUnexpected" type="number" min="0" step="1" required></div>
+   <div class="full"><div id="budgetValidation" class="small" aria-live="polite"></div><button style="width:100%;margin-top:12px" type="submit">Save monthly plan</button></div>
+  </div>
+ </form>
 </section>
 <section class="card">
  <h2>Add an expense</h2>
@@ -77,7 +90,7 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:10px}
  <div class="row"><h2 style="margin:0">Weekly spending</h2><select id="weekSelect" style="width:auto;max-width:145px"><option value="0">Week 1</option><option value="1">Week 2</option><option value="2">Week 3</option><option value="3">Week 4</option><option value="4">Week 5</option></select></div>
  <div class="grid" style="margin-top:12px">
   <div class="metric"><div class="eyebrow">Weekly spent</div><strong id="weekSpent">₹0</strong></div>
-  <div class="metric"><div class="eyebrow">Weekly limit</div><strong>₹375</strong></div>
+  <div class="metric"><div class="eyebrow">Weekly limit</div><strong id="weekLimit">₹0</strong></div>
  </div>
  <div class="bar"><div class="fill" id="weekBar" style="width:0%"></div></div>
  <div class="small" id="weekRemain">₹375 remaining</div><div id="weekCategories" style="margin-top:12px"></div>
@@ -94,8 +107,8 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:10px}
 <section class="card">
  <h2>Savings & emergency fund</h2>
  <div class="grid">
-  <div class="metric"><div class="eyebrow">Monthly savings target</div><strong>₹500</strong></div>
-  <div class="metric"><div class="eyebrow">Emergency fund starting balance</div><strong>₹3,000</strong></div>
+  <div class="metric"><div class="eyebrow">Monthly savings target</div><strong id="lowerSavingsTarget">₹500</strong></div>
+  <div class="metric"><div class="eyebrow">Current emergency fund balance</div><strong id="emergencyLower">₹3,000</strong></div>
  </div>
  <label for="emergencyInput">Current emergency fund balance (₹)</label>
  <input id="emergencyInput" type="number" min="0" step="1" value="3000">
@@ -113,7 +126,7 @@ import {
   onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore, collection, doc, getDocs, onSnapshot, setDoc,
+  getFirestore, collection, doc, getDoc, getDocs, onSnapshot, setDoc,
   enableIndexedDbPersistence
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
@@ -128,12 +141,13 @@ const firebaseConfig = {
 };
 
 const KEY='pocketpilot-v1';
-const PLAN={Canteen:900,Personal:300,Unexpected:300};
-const WEEK={Canteen:225,Personal:75,Unexpected:75};
-let state={entries:[],emergency:3000,deletedIds:[]};
+const DEFAULT_BUDGET={monthly:2000,savings:500,categories:{Canteen:900,Personal:300,Unexpected:300}};
+const CATEGORIES=['Canteen','Personal','Unexpected'];
+let state={entries:[],emergency:3000,deletedIds:[],budget:{...DEFAULT_BUDGET,categories:{...DEFAULT_BUDGET.categories}}};
 let currentUser=null;
 let stopExpenseListener=null;
 let stopEmergencyListener=null;
+let stopBudgetListener=null;
 let syncBusy=false;
 let syncAgain=false;
 let persistenceMessage='';
@@ -163,8 +177,9 @@ function load(){
     state={...state,...x};
     if(!Array.isArray(state.entries))state.entries=[];
     if(!Array.isArray(state.deletedIds))state.deletedIds=[];
+    state.budget=normalizeBudget(state.budget);
     state.entries=state.entries.map(e=>({...e,id:String(e.id),updatedAt:Number(e.updatedAt)||0}));
-  }catch(e){state={entries:[],emergency:3000,deletedIds:[]};}
+  }catch(e){state={entries:[],emergency:3000,deletedIds:[],budget:{...DEFAULT_BUDGET,categories:{...DEFAULT_BUDGET.categories}}};}
 }
 function save(){localStorage.setItem(KEY,JSON.stringify(state));}
 const money=n=>'₹'+Math.round(Number(n)||0).toLocaleString('en-IN');
@@ -172,25 +187,91 @@ const today=()=>{const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOff
 function currentEntries(){const m=today().slice(0,7);return state.entries.filter(e=>String(e.date||'').slice(0,7)===m);}
 function weekIndex(date){return Math.min(4,Math.floor((new Date(date+'T12:00:00').getDate()-1)/7));}
 function sum(list,cat){return list.filter(e=>!cat||e.category===cat).reduce((a,e)=>a+Number(e.amount||0),0);}
+function normalizeBudget(value){
+  const b=value||{};
+  const categories=b.categories||{};
+  const numberOrDefault=(value,fallback)=>value===undefined||value===null||value===''?fallback:Number(value);
+  return {
+    monthly:Math.max(1,Math.round(numberOrDefault(b.monthly,DEFAULT_BUDGET.monthly))),
+    savings:Math.max(0,Math.round(numberOrDefault(b.savings,DEFAULT_BUDGET.savings))),
+    categories:{
+      Canteen:Math.max(0,Math.round(numberOrDefault(categories.Canteen,DEFAULT_BUDGET.categories.Canteen))),
+      Personal:Math.max(0,Math.round(numberOrDefault(categories.Personal,DEFAULT_BUDGET.categories.Personal))),
+      Unexpected:Math.max(0,Math.round(numberOrDefault(categories.Unexpected,DEFAULT_BUDGET.categories.Unexpected)))
+    }
+  };
+}
+function budgetTotal(b=state.budget){
+  return b.savings+CATEGORIES.reduce((n,c)=>n+Number(b.categories[c]||0),0);
+}
+function fillBudgetForm(){
+  $('budgetMonthly').value=state.budget.monthly;
+  $('budgetSavings').value=state.budget.savings;
+  $('budgetCanteen').value=state.budget.categories.Canteen;
+  $('budgetPersonal').value=state.budget.categories.Personal;
+  $('budgetUnexpected').value=state.budget.categories.Unexpected;
+  validateBudgetForm();
+}
+function readBudgetForm(){
+  return {
+    monthly:Number($('budgetMonthly').value),
+    savings:Number($('budgetSavings').value),
+    categories:{
+      Canteen:Number($('budgetCanteen').value),
+      Personal:Number($('budgetPersonal').value),
+      Unexpected:Number($('budgetUnexpected').value)
+    }
+  };
+}
+function validateBudgetForm(){
+  const b=readBudgetForm();
+  const fields=[b.monthly,b.savings,b.categories.Canteen,b.categories.Personal,b.categories.Unexpected];
+  const validNumbers=fields.every(v=>Number.isInteger(v)&&v>=0)&&b.monthly>0;
+  const total=budgetTotal(b);
+  const valid=validNumbers&&total===b.monthly;
+  $('budgetValidation').textContent=!validNumbers
+    ?'Enter whole rupee amounts. Monthly budget must be greater than zero.'
+    :total===b.monthly
+      ?`Perfect! Allocated total: ${money(total)} = monthly budget ${money(b.monthly)}.`
+      :`Your allocations total ${money(total)}. They must equal ${money(b.monthly)}. Difference: ${money(Math.abs(b.monthly-total))}.`;
+  $('budgetValidation').style.color=valid?'#176b50':'#b84242';
+  return valid;
+}
 function render(){
-  const entries=currentEntries(),spent=sum(entries),saved=500;
+  const entries=currentEntries(),spent=sum(entries),b=state.budget,spendable=b.monthly-b.savings;
   $('monthLabel').textContent=new Date().toLocaleDateString('en-IN',{month:'long',year:'numeric'});
-  $('remaining').textContent=money(2000-spent-500);
-  $('monthSpent').textContent=money(spent);$('monthSaved').textContent=money(saved);
-  $('emergency').textContent=money(state.emergency);$('txCount').textContent=entries.length;
-  $('monthBar').style.width=Math.min(100,spent/1500*100)+'%';
-  $('categoryBars').innerHTML=['Canteen','Personal','Unexpected'].map(c=>{
-    const v=sum(entries,c),pct=Math.min(100,v/PLAN[c]*100);
-    return `<div class="catrow"><div class="row"><span class="catname">${c}</span><b>${money(v)} / ${money(PLAN[c])}</b></div><div class="bar"><div class="fill ${v>PLAN[c]?'over':''}" style="width:${pct}%"></div></div></div>`;
+  $('remaining').textContent=money(spendable-spent);
+  $('monthlyBudgetDisplay').textContent=money(b.monthly);
+  $('savingsTargetDisplay').textContent='Savings target '+money(b.savings);
+  $('monthSpent').textContent=money(spent);$('monthSaved').textContent=money(b.savings);
+  $('emergency').textContent=money(state.emergency);
+  $('emergencyLower').textContent=money(state.emergency);
+  $('lowerSavingsTarget').textContent=money(b.savings);
+  $('txCount').textContent=entries.length;
+  $('monthBar').style.width=(spendable>0?Math.min(100,Math.max(0,spent/spendable*100)):spent>0?100:0)+'%';
+  $('monthBar').className='fill '+(spent>spendable?'over':'');
+  $('categoryBars').innerHTML=CATEGORIES.map(c=>{
+    const v=sum(entries,c),limit=b.categories[c],pct=limit>0?Math.min(100,v/limit*100):v>0?100:0;
+    return `<div class="catrow"><div class="row"><span class="catname">${c}</span><b>${money(v)} / ${money(limit)}</b></div><div class="bar"><div class="fill ${v>limit?'over':''}" style="width:${pct}%"></div></div></div>`;
   }).join('');
+  $('planSummary').textContent=`Categories: ${CATEGORIES.map(c=>c+' '+money(b.categories[c])).join(' · ')} · Savings ${money(b.savings)} · Total ${money(budgetTotal())}.`;
   renderWeek();renderHistory();drawChart();
 }
 function renderWeek(){
   const w=Number($('weekSelect').value),list=currentEntries().filter(e=>weekIndex(e.date)===w),total=sum(list);
-  $('weekSpent').textContent=money(total);$('weekBar').style.width=Math.min(100,total/375*100)+'%';
-  $('weekBar').className='fill '+(total>375?'over':'');
-  $('weekRemain').textContent=total>375?`${money(total-375)} over the weekly guide`:`${money(375-total)} remaining of the ₹375 weekly guide`;
-  $('weekCategories').innerHTML=['Canteen','Personal','Unexpected'].map(c=>`<div class="row" style="padding:6px 0"><span>${c}</span><b>${money(sum(list,c))} / ${money(WEEK[c])}</b></div>`).join('');
+  const yearMonth=today().slice(0,7),[year,month]=yearMonth.split('-').map(Number);
+  const daysInMonth=new Date(year,month,0).getDate();
+  const startDay=w*7+1,endDay=Math.min(daysInMonth,startDay+6);
+  const days=Math.max(0,endDay-startDay+1),fraction=days/daysInMonth;
+  const weeklyLimit=Math.round((state.budget.monthly-state.budget.savings)*fraction);
+  $('weekSpent').textContent=money(total);$('weekLimit').textContent=money(weeklyLimit);
+  $('weekBar').style.width=(weeklyLimit>0?Math.min(100,total/weeklyLimit*100):total>0?100:0)+'%';
+  $('weekBar').className='fill '+(total>weeklyLimit?'over':'');
+  $('weekRemain').textContent=total>weeklyLimit?`${money(total-weeklyLimit)} over this week's guide`:`${money(weeklyLimit-total)} remaining in this week's guide`;
+  $('weekCategories').innerHTML=CATEGORIES.map(c=>{
+    const catLimit=Math.round(state.budget.categories[c]*fraction);
+    return `<div class="row" style="padding:6px 0"><span>${c}</span><b>${money(sum(list,c))} / ${money(catLimit)}</b></div>`;
+  }).join('');
 }
 function renderHistory(){
   const list=[...currentEntries()].sort((a,b)=>b.date.localeCompare(a.date)||(Number(b.updatedAt)||0)-(Number(a.updatedAt)||0));
@@ -201,7 +282,7 @@ function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;',
 function drawChart(){
   const c=$('chart'),ctx=c.getContext('2d'),cats=['Canteen','Personal','Unexpected'],colors=['#d89a3d','#5286bd','#9a78bd'];
   ctx.clearRect(0,0,c.width,c.height);ctx.font='14px system-ui';ctx.fillStyle='#52635a';
-  cats.forEach((cat,i)=>{const x=35+i*210,v=sum(currentEntries(),cat),max=PLAN[cat],base=174,h=Math.min(125,v/max*125);
+  cats.forEach((cat,i)=>{const x=35+i*210,v=sum(currentEntries(),cat),max=state.budget.categories[cat],base=174,h=Math.min(125,max>0?v/max*125:(v>0?125:0));
     ctx.fillText(cat,x,24);ctx.fillStyle='#e9efeb';ctx.fillRect(x,40,130,130);ctx.fillStyle=colors[i];ctx.fillRect(x,base-h,130,h);
     ctx.fillStyle='#52635a';ctx.fillText(money(v),x,202);ctx.fillText('limit '+money(max),x,220);
   });
@@ -218,6 +299,18 @@ function deleteExpense(id){
   tombstone(id);
   localExpenseChanged();
 }
+['budgetMonthly','budgetSavings','budgetCanteen','budgetPersonal','budgetUnexpected'].forEach(id=>{
+  $(id).addEventListener('input',validateBudgetForm);
+});
+$('budgetForm').addEventListener('submit',e=>{
+  e.preventDefault();
+  if(!validateBudgetForm())return;
+  state.budget=normalizeBudget(readBudgetForm());
+  state.budgetUpdatedAt=Date.now();
+  save();render();fillBudgetForm();
+  if(currentUser)syncAll();
+  setMessage('Your monthly budget plan has been saved and will sync to your account when online.',currentUser?'online':'info');
+});
 $('expenseForm').addEventListener('submit',e=>{
   e.preventDefault();
   const amount=Number($('amount').value),date=$('date').value;
@@ -286,7 +379,10 @@ async function syncAll(){
     await setDoc(doc(db,'users',uid,'settings','emergencyFund'),{
       value:Number(state.emergency)||0,updatedAt:Number(state.emergencyUpdatedAt)||Date.now()
     },{merge:true});
-    setMessage('Your expenses and emergency fund are synced with your Google account.', 'online');
+    await setDoc(doc(db,'users',uid,'settings','budgetPlan'),{
+      ...state.budget,updatedAt:Number(state.budgetUpdatedAt)||Date.now()
+    },{merge:true});
+    setMessage('Your expenses, budget plan and emergency fund are synced with your Google account.', 'online');
   }catch(error){
     console.error('PocketPilot sync error:',error);
     setMessage('Saved on this device. Cloud sync will retry when the connection is available.');
@@ -319,7 +415,6 @@ async function initialCloudMerge(user){
     if(!state.deletedIds.some(x=>String(x.id)===t.id))state.deletedIds.push(t);
   }
   const settingsRef=doc(db,'users',uid,'settings','emergencyFund');
-  const {getDoc}=await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js');
   const settingsSnap=await getDoc(settingsRef);
   if(settingsSnap.exists()){
     const cloud=settingsSnap.data();
@@ -327,12 +422,21 @@ async function initialCloudMerge(user){
       state.emergency=Number(cloud.value)||0;state.emergencyUpdatedAt=Number(cloud.updatedAt)||0;
     }
   }
-  save();$('emergencyInput').value=state.emergency;render();
+  const budgetSnap=await getDoc(doc(db,'users',uid,'settings','budgetPlan'));
+  if(budgetSnap.exists()){
+    const cloud=budgetSnap.data();
+    if((Number(cloud.updatedAt)||0)>(Number(state.budgetUpdatedAt)||0)){
+      state.budget=normalizeBudget(cloud);
+      state.budgetUpdatedAt=Number(cloud.updatedAt)||0;
+    }
+  }
+  save();$('emergencyInput').value=state.emergency;fillBudgetForm();render();
   await syncAll();
 }
 function startLiveListeners(user){
   if(stopExpenseListener)stopExpenseListener();
   if(stopEmergencyListener)stopEmergencyListener();
+  if(stopBudgetListener)stopBudgetListener();
   stopExpenseListener=onSnapshot(expenseCollection(user.uid),snapshot=>{
     let changed=false;
     snapshot.docChanges().forEach(change=>{
@@ -362,11 +466,25 @@ function startLiveListeners(user){
       save();$('emergencyInput').value=state.emergency;render();
     }
   });
+  stopBudgetListener=onSnapshot(doc(db,'users',user.uid,'settings','budgetPlan'),snap=>{
+    if(!snap.exists())return;
+    const x=snap.data(),cloudTime=Number(x.updatedAt)||0;
+    if(cloudTime>(Number(state.budgetUpdatedAt)||0)){
+      const incoming=normalizeBudget(x);
+      if(budgetTotal(incoming)!==incoming.monthly){
+        console.warn('Ignored invalid cloud budget plan:',x);
+        return;
+      }
+      state.budget=incoming;state.budgetUpdatedAt=cloudTime;
+      save();fillBudgetForm();render();
+    }
+  });
 }
 onAuthStateChanged(auth,async user=>{
   currentUser=user;
   if(stopExpenseListener){stopExpenseListener();stopExpenseListener=null;}
   if(stopEmergencyListener){stopEmergencyListener();stopEmergencyListener=null;}
+  if(stopBudgetListener){stopBudgetListener();stopBudgetListener=null;}
   if(!user){
     $('accountText').textContent='Not signed in · saving on this device';
     $('googleSignIn').hidden=false;$('signOut').hidden=true;
@@ -389,7 +507,7 @@ onAuthStateChanged(auth,async user=>{
 });
 window.addEventListener('online',()=>{if(currentUser)syncAll();});
 $('date').value=today();
-load();$('emergencyInput').value=state.emergency;render();
+load();$('emergencyInput').value=state.emergency;fillBudgetForm();render();
 if('serviceWorker' in navigator && location.protocol.startsWith('http'))navigator.serviceWorker.register('./sw.js').catch(error=>console.warn('Service worker registration failed:',error));
 </script>
 </body>
