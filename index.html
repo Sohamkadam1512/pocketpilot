@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="en">
 <head>
@@ -15,7 +16,6 @@ header{background:#123b32;color:white;padding:22px 18px 25px;border-radius:0 0 2
 .headrow{display:flex;justify-content:space-between;align-items:center}.brand{font-size:23px;font-weight:800;letter-spacing:-.5px}.sub{color:#c6ded4;font-size:13px;margin-top:3px}
 main{max-width:760px;margin:auto;padding:16px 14px 40px}.hero{margin-top:-7px}.panel,.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;margin-bottom:13px;box-shadow:0 3px 12px #193d2b08}
 .eyebrow{font-size:12px;color:var(--muted);font-weight:650;text-transform:uppercase;letter-spacing:.5px}.big{font-size:30px;font-weight:800;letter-spacing:-1px;margin:3px 0}.muted{color:var(--muted);font-size:13px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.metric{background:#f7faf8;border-radius:13px;padding:12px}.metric strong{display:block;font-size:21px;margin-top:3px}
-h2{font-size:17px;margin:0 0 13px}h3{font-size:14px;margin:0 0 8px}
 .bar{height:9px;background:#edf1ee;border-radius:99px;overflow:hidden;margin:8px 0 5px}.fill{height:100%;border-radius:99px;background:var(--green)}.fill.over{background:var(--red)}
 .row{display:flex;align-items:center;justify-content:space-between;gap:10px}.catrow{margin:13px 0}.catname{font-weight:700}.small{font-size:12px;color:var(--muted)}
 label{display:block;font-size:13px;font-weight:650;margin:10px 0 5px}input,select{width:100%;padding:12px;border:1px solid #d7e1db;border-radius:11px;background:white;color:var(--ink);font:inherit}
@@ -94,6 +94,17 @@ footer{text-align:center;color:var(--muted);font-size:11px;padding:10px}
  </div>
  <div class="bar"><div class="fill" id="weekBar" style="width:0%"></div></div>
  <div class="small" id="weekRemain">₹375 remaining</div><div id="weekCategories" style="margin-top:12px"></div>
+</section>
+<section class="card">
+ <div class="row"><h2 style="margin:0">Monthly spending record</h2><select id="monthSelect" aria-label="Choose month" style="width:auto;max-width:180px"></select></div>
+ <div class="grid" style="margin-top:12px">
+  <div class="metric"><div class="eyebrow">Monthly spent</div><strong id="selectedMonthSpent">₹0</strong></div>
+  <div class="metric"><div class="eyebrow">Monthly spending limit</div><strong id="selectedMonthLimit">₹0</strong></div>
+ </div>
+ <div class="bar"><div class="fill" id="selectedMonthBar" style="width:0%"></div></div>
+ <div class="small" id="selectedMonthRemain">₹0 remaining</div>
+ <div id="selectedMonthCategories" style="margin-top:12px"></div>
+ <p class="small">Past months use your currently saved budget as a reference. Your recorded expenses remain unchanged.</p>
 </section>
 <section class="card">
  <h2>Spending chart · this month</h2>
@@ -255,7 +266,7 @@ function render(){
     return `<div class="catrow"><div class="row"><span class="catname">${c}</span><b>${money(v)} / ${money(limit)}</b></div><div class="bar"><div class="fill ${v>limit?'over':''}" style="width:${pct}%"></div></div></div>`;
   }).join('');
   $('planSummary').textContent=`Categories: ${CATEGORIES.map(c=>c+' '+money(b.categories[c])).join(' · ')} · Savings ${money(b.savings)} · Total ${money(budgetTotal())}.`;
-  renderWeek();renderHistory();drawChart();
+  renderWeek();renderMonthly();renderHistory();drawChart();
 }
 function renderWeek(){
   const w=Number($('weekSelect').value),list=currentEntries().filter(e=>weekIndex(e.date)===w),total=sum(list);
@@ -271,6 +282,32 @@ function renderWeek(){
   $('weekCategories').innerHTML=CATEGORIES.map(c=>{
     const catLimit=Math.round(state.budget.categories[c]*fraction);
     return `<div class="row" style="padding:6px 0"><span>${c}</span><b>${money(sum(list,c))} / ${money(catLimit)}</b></div>`;
+  }).join('');
+}
+function renderMonthly(){
+  const select=$('monthSelect');
+  const currentMonth=today().slice(0,7);
+  const availableMonths=[...new Set([currentMonth,...state.entries.map(e=>String(e.date||'').slice(0,7)).filter(m=>/^\d{4}-\d{2}$/.test(m))])].sort().reverse();
+  const previous=select.value;
+  select.innerHTML=availableMonths.map(m=>{
+    const [year,month]=m.split('-').map(Number);
+    const label=new Date(year,month-1,1).toLocaleDateString('en-IN',{month:'long',year:'numeric'});
+    return `<option value="${m}">${label}</option>`;
+  }).join('');
+  select.value=availableMonths.includes(previous)?previous:currentMonth;
+  const chosen=select.value;
+  const list=state.entries.filter(e=>String(e.date||'').slice(0,7)===chosen);
+  const total=sum(list);
+  const limit=Math.max(0,state.budget.monthly-state.budget.savings);
+  $('selectedMonthSpent').textContent=money(total);
+  $('selectedMonthLimit').textContent=money(limit);
+  $('selectedMonthBar').style.width=(limit>0?Math.min(100,total/limit*100):total>0?100:0)+'%';
+  $('selectedMonthBar').className='fill '+(total>limit?'over':'');
+  $('selectedMonthRemain').textContent=total>limit?`${money(total-limit)} over this month's guide`:`${money(limit-total)} remaining in this month's guide`;
+  $('selectedMonthCategories').innerHTML=CATEGORIES.map(c=>{
+    const spent=sum(list,c),categoryLimit=state.budget.categories[c];
+    const pct=categoryLimit>0?Math.min(100,spent/categoryLimit*100):spent>0?100:0;
+    return `<div class="catrow"><div class="row"><span class="catname">${c}</span><b>${money(spent)} / ${money(categoryLimit)}</b></div><div class="bar"><div class="fill ${spent>categoryLimit?'over':''}" style="width:${pct}%"></div></div></div>`;
   }).join('');
 }
 function renderHistory(){
@@ -321,6 +358,7 @@ $('expenseForm').addEventListener('submit',e=>{
   localExpenseChanged();$('amount').value='';$('description').value='';
 });
 $('weekSelect').addEventListener('change',renderWeek);
+$('monthSelect').addEventListener('change',renderMonthly);
 $('saveEmergency').addEventListener('click',()=>{
   const v=Number($('emergencyInput').value);
   if(Number.isFinite(v)&&v>=0){state.emergency=v;state.emergencyUpdatedAt=Date.now();localExpenseChanged();alert('Emergency fund balance updated on this device.');}
